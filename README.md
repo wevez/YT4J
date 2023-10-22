@@ -8,3 +8,5 @@ YouTube Search API for Java.
 [Example](https://github.com/wevez/YT4J/blob/main/src/Main.java)
 ### An example of the output result of the above code
 ![image](screenshot.png)
+## This project contains following libraries.
+- [gson](https://github.com/google/gson) Parser for .json file.
