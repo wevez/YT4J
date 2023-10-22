@@ -7,4 +7,4 @@ YouTube Search API for Java.
 - Create an instance of your custom SC4J and enjoy your scraping!
 [Example](https://github.com/wevez/YT4J/blob/main/src/Main.java)
 An example of the output result of the above code
-![output_example](htps://github.com/wevez/YT4J/assets/79446154/41891167-b829-4084-8fcb-776a16ec2f3c)
+![image](htps://github.com/wevez/YT4J/assets/79446154/41891167-b829-4084-8fcb-776a16ec2f3c)
