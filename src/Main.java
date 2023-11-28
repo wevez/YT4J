@@ -5,15 +5,11 @@ public class Main {
         CustomYT4J sc4J = new CustomYT4J();
         // Start searching with title "Seikin music".
         sc4J.startSearch("Seikin music");
-        // Print all titles in the search result.
-        sc4J.getSearchResult().forEach(s -> System.out.println(s.getTitle()));
 
         // Start second search.
         sc4J.continueSearch();
 
         // Print all title and details in the search result.
-        sc4J.getSearchResult().forEach(s -> System.out.println(
-                s.getTitle() + ";" + s.getPublisher() + ";" + s.getVideoId() + ";" + s.getThumbnailURL()
-        ));
+        sc4J.getSearchResult().forEach(s -> System.out.println(s.toString()));
     }
 }

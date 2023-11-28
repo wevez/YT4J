@@ -1,0 +1,9 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="with_gson">
+    <output-path>$PROJECT_DIR$/out/artifacts/with_gson</output-path>
+    <root id="archive" name="YT4J.jar">
+      <element id="module-output" name="YT4J" />
+      <element id="extracted-dir" path="$MAVEN_REPOSITORY$/com/google/code/gson/gson/2.10.1/gson-2.10.1.jar" path-in-jar="/" />
+    </root>
+  </artifact>
+</component>

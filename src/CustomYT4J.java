@@ -10,7 +10,6 @@ import java.net.URL;
 
 public class CustomYT4J extends YT4J {
 
-
     @Override
     protected String getHTTP(String URL, String USER_AGENT) {
         try {

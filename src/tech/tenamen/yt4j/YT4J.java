@@ -3,13 +3,13 @@ package tech.tenamen.yt4j;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import tech.tenamen.yt4j.data.YTVideo;
 import tech.tenamen.yt4j.util.JSONUtil;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 public abstract class YT4J {
 
@@ -29,11 +29,9 @@ public abstract class YT4J {
     /** User-agent */
     private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/105.0.0.0 Safari/537.36 OPR/91.0.4516.72 (Edition GX-CN)";
 
-    private int searchOffset = 0;
+    private final List<YTVideo> SEARCH_RESULT = new ArrayList<>();
 
-    private final List<YTSearchResult> SEARCH_RESULT = new ArrayList<>();
-
-    public final List<YTSearchResult> getSearchResult() {
+    public final List<YTVideo> getSearchResult() {
         return this.SEARCH_RESULT;
     }
 
@@ -41,15 +39,13 @@ public abstract class YT4J {
 
         // Parse count token from json.
         // The count token will be used to fetch next page data.
-        final Optional<String> countTokenOptional = JSONUtil.streamOf(array)
+        JSONUtil.streamOf(array)
                 .filter(JSONUtil.hasFilter("continuationItemRenderer"))
                 .map(JSONUtil.getObject("continuationItemRenderer"))
                 .map(JSONUtil.getObject("continuationEndpoint"))
                 .map(JSONUtil.getObject("continuationCommand"))
                 .map(JSONUtil.getString("token"))
-                .findAny();
-
-        countTokenOptional.ifPresent(s -> countToken = s);
+                .findAny().ifPresent(s -> countToken = s);
 
         // Parse video info from json.
         JSONUtil.streamOf(array)
@@ -61,50 +57,53 @@ public abstract class YT4J {
                         .map(JSONUtil.getObject("videoRenderer"))
                         .filter(JSONUtil.hasFilter("videoId"))
                         .forEach(videoRenderer -> {
-
-                            // Parse video info from video renderer.
-                            final String videoId = videoRenderer.get("videoId").getAsString();
-                            final String thumbnail = videoRenderer
-                                    .getAsJsonObject("thumbnail")
-                                    .getAsJsonArray("thumbnails")
-                                    .get(0).getAsJsonObject()
-                                    .get("url").getAsString();
-                            final String title = videoRenderer
-                                    .getAsJsonObject("title")
-                                    .getAsJsonArray("runs")
-                                    .get(0).getAsJsonObject()
-                                    .get("text").getAsString();
-                            String publisher = null;
-                            if (
-                                    videoRenderer.has("ownerText") &&
-                                            videoRenderer.getAsJsonObject("ownerText").has("runs")
-                            ) {
-                                publisher = videoRenderer
-                                        .getAsJsonObject("ownerText")
+                            // In case of this, video renderer is normal YouTube video or shorts
+                            if (videoRenderer.has("videoId")) {
+                                // Parse video info from video renderer.
+                                final String videoId = videoRenderer.get("videoId").getAsString();
+                                final String thumbnail = videoRenderer
+                                        .getAsJsonObject("thumbnail")
+                                        .getAsJsonArray("thumbnails")
+                                        .get(0).getAsJsonObject()
+                                        .get("url").getAsString();
+                                final String title = videoRenderer
+                                        .getAsJsonObject("title")
                                         .getAsJsonArray("runs")
                                         .get(0).getAsJsonObject()
                                         .get("text").getAsString();
+                                String publisher = null;
+                                if (
+                                        videoRenderer.has("ownerText") &&
+                                                videoRenderer.getAsJsonObject("ownerText").has("runs")
+                                ) {
+                                    publisher = videoRenderer
+                                            .getAsJsonObject("ownerText")
+                                            .getAsJsonArray("runs")
+                                            .get(0).getAsJsonObject()
+                                            .get("text").getAsString();
+                                }
+
+                                // Create a snippet instance and add it to result list.
+                                this.SEARCH_RESULT.add(
+                                        new YTVideo(
+                                                title,
+                                                publisher,
+                                                videoId,
+                                                thumbnail
+                                        )
+                                );
                             }
-
-                            // Create a snippet instance and add it to result list.
-                            this.SEARCH_RESULT.add(
-                                    new YTSearchResult(
-                                            title,
-                                            publisher,
-                                            videoId,
-                                            thumbnail
-                                    )
-                            );
-
-                            this.searchOffset++;
+                            // In case of this, video renderer is playlist
+                            else {
+                                // TODO
+                                System.out.println("playlist found");
+                            }
                         })
                 );
 
     }
 
     public void startSearch(final String KEYWORD) {
-        this.searchOffset = 0;
-
         String encodedKeyword = null;
         try {
             encodedKeyword = URLEncoder.encode(KEYWORD, "UTF-8");
