@@ -7,11 +7,12 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.function.Consumer;
 
-public class CustomYT4J extends YT4J {
+public class HttpURLConnectionYT4J extends YT4J {
 
     @Override
-    protected String getHTTP(String URL, String USER_AGENT) {
+    protected void getHTTP(String URL, String USER_AGENT, Consumer<String> RESPONSE_HANDLER) {
         try {
             final URL requestUrl = new URL(URL);
 
@@ -27,14 +28,15 @@ public class CustomYT4J extends YT4J {
             }
             reader.close();
             connection.disconnect();
-            return response.toString();
+
+            RESPONSE_HANDLER.accept(response.toString());
         } catch (final IOException e) {
             throw new RuntimeException(e);
         }
     }
 
     @Override
-    protected String postHTTP(String URL, String USER_AGENT, JsonObject JSON) {
+    protected void postHTTP(String URL, String USER_AGENT, JsonObject JSON, Consumer<String> RESPONSE_HANDLER) {
         try {
             final URL url = new URL(URL);
             final HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -56,7 +58,7 @@ public class CustomYT4J extends YT4J {
             reader.close();
             connection.disconnect();
 
-            return response.toString();
+            RESPONSE_HANDLER.accept(response.toString());
         } catch (final IOException e) {
             throw new RuntimeException(e);
         }

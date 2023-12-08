@@ -3,6 +3,7 @@ package tech.tenamen.yt4j;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import tech.tenamen.yt4j.data.YTData;
 import tech.tenamen.yt4j.data.YTVideo;
 import tech.tenamen.yt4j.util.JSONUtil;
 
@@ -10,6 +11,7 @@ import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 public abstract class YT4J {
 
@@ -29,13 +31,14 @@ public abstract class YT4J {
     /** User-agent */
     private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/105.0.0.0 Safari/537.36 OPR/91.0.4516.72 (Edition GX-CN)";
 
-    private final List<YTVideo> SEARCH_RESULT = new ArrayList<>();
-
-    public final List<YTVideo> getSearchResult() {
-        return this.SEARCH_RESULT;
-    }
-
-    private void parseAndAddContents(final JsonArray array) {
+    /**
+     * Parse YouTube videos from JsonArray
+     *
+     * @param array JsonArray to be parse
+     * @return List of YouTube videos
+     */
+    private List<YTData> parseContents(final JsonArray array) {
+        final List<YTData> CONTENTS = new ArrayList<>();
 
         // Parse count token from json.
         // The count token will be used to fetch next page data.
@@ -84,7 +87,7 @@ public abstract class YT4J {
                                 }
 
                                 // Create a snippet instance and add it to result list.
-                                this.SEARCH_RESULT.add(
+                                CONTENTS.add(
                                         new YTVideo(
                                                 title,
                                                 publisher,
@@ -101,9 +104,16 @@ public abstract class YT4J {
                         })
                 );
 
+        return CONTENTS;
     }
 
-    public void startSearch(final String KEYWORD) {
+    /**
+     * Start search with given title from the first
+     *
+     * @param ON_SUCCESS process executed when searching is success
+     * @param KEYWORD search title
+     */
+    public void startSearch(final Consumer<List<YTData>> ON_SUCCESS, final String KEYWORD) {
         String encodedKeyword = null;
         try {
             encodedKeyword = URLEncoder.encode(KEYWORD, "UTF-8");
@@ -111,82 +121,96 @@ public abstract class YT4J {
             throw new RuntimeException(e);
         }
 
-        final String response = this.getHTTP(
+        this.getHTTP(
                 String.format(
                         "%s/results?search_query=%s&sp=%s",
                         HOST_URL,
                         encodedKeyword,
                         VIDEO_TAG
-                ), USER_AGENT
+                ),
+                USER_AGENT,
+                response -> {
+                    final String[] ytInitData = response.split("var ytInitialData =");
+
+                    // No search result.
+                    if (ytInitData.length <= 1) {
+                        ON_SUCCESS.accept(new ArrayList<>());
+                        return;
+                    }
+
+                    final String s = ytInitData[1].split("</script>")[0];
+                    final String data = s.substring(0, s.length() - 1);
+
+                    final JsonObject initdata = GSON.fromJson(data, JsonObject.class);;
+
+                    // Parse API token which one is needed to search next page.
+                    this.apiToken = null;
+                    if (response.split("innertubeApiKey").length > 0) {
+                        this.apiToken = response
+                                .split("innertubeApiKey")[1]
+                                .trim()
+                                .split(",")[0]
+                                .split("\"")[2];
+                    }
+
+                    // Parse context which one is needed to search next page.
+                    this.context = null;
+                    if (response.split("INNERTUBE_CONTEXT").length > 0) {
+                        final String s2 = response
+                                .split("INNERTUBE_CONTEXT")[1]
+                                .trim();
+                        this.context = GSON.fromJson(s2.substring(2, s2.length() -2), JsonObject.class);
+                    }
+
+                    final JsonArray array = initdata
+                            .getAsJsonObject("contents")
+                            .getAsJsonObject("twoColumnSearchResultsRenderer")
+                            .getAsJsonObject("primaryContents")
+                            .getAsJsonObject("sectionListRenderer")
+                            .getAsJsonArray("contents");
+
+                    // This token is needed to search next page.
+                    this.countToken = null;
+
+                    ON_SUCCESS.accept(this.parseContents(array));
+                }
         );
-
-        final String[] ytInitData = response.split("var ytInitialData =");
-
-        // No search result.
-        if (ytInitData.length <= 1) {
-            return;
-        }
-
-        final String s = ytInitData[1].split("</script>")[0];
-        final String data = s.substring(0, s.length() - 1);
-
-        final JsonObject initdata = GSON.fromJson(data, JsonObject.class);;
-
-        // Parse API token which one is needed to search next page.
-        this.apiToken = null;
-        if (response.split("innertubeApiKey").length > 0) {
-            this.apiToken = response
-                    .split("innertubeApiKey")[1]
-                    .trim()
-                    .split(",")[0]
-                    .split("\"")[2];
-        }
-
-        // Parse context which one is needed to search next page.
-        this.context = null;
-        if (response.split("INNERTUBE_CONTEXT").length > 0) {
-            final String s2 = response
-                    .split("INNERTUBE_CONTEXT")[1]
-                    .trim();
-            this.context = GSON.fromJson(s2.substring(2, s2.length() -2), JsonObject.class);
-        }
-
-        final JsonArray array = initdata
-                .getAsJsonObject("contents")
-                .getAsJsonObject("twoColumnSearchResultsRenderer")
-                .getAsJsonObject("primaryContents")
-                .getAsJsonObject("sectionListRenderer")
-                .getAsJsonArray("contents");
-
-        // This token is needed to search next page.
-        this.countToken = null;
-
-        this.parseAndAddContents(array);
     }
 
-    public void continueSearch() {
+    /**
+     * Continue search with current context
+     *
+     * @param ON_SUCCESS process executed when searching is success
+     */
+    public void continueSearch(final Consumer<List<YTData>> ON_SUCCESS) {
+        if (this.context == null) {
+            throw new RuntimeException("Search context is null!(forget calling YT4J#startSearch()?");
+        }
+
         JsonObject jsonObject = new JsonObject();
         jsonObject.add("context", this.context);
         jsonObject.addProperty("continuation", this.countToken);
-        final String response = this.postHTTP(
+        this.postHTTP(
                 String.format(
-                        "%s/youtubei/v1/search?key=",
+                        "%s/youtubei/v1/search?key=%s",
                         HOST_URL,
                         this.apiToken
                 ),
                 USER_AGENT,
-                jsonObject
+                jsonObject,
+                response -> {
+                    final JsonObject item1 = GSON.fromJson(response, JsonObject.class)
+                            .getAsJsonArray("onResponseReceivedCommands")
+                            .get(0).getAsJsonObject()
+                            .getAsJsonObject("appendContinuationItemsAction");
+
+                    final JsonArray continuationItems = item1.getAsJsonArray("continuationItems");
+
+                    ON_SUCCESS.accept(this.parseContents(continuationItems));
+                }
         );
-
-        final JsonObject item1 = GSON.fromJson(response, JsonObject.class)
-                .getAsJsonArray("onResponseReceivedCommands")
-                .get(0).getAsJsonObject()
-                .getAsJsonObject("appendContinuationItemsAction");
-
-        final JsonArray continuationItems = item1.getAsJsonArray("continuationItems");
-        this.parseAndAddContents(continuationItems);
     }
 
-    protected abstract String getHTTP(final String URL, final String USER_AGENT);
-    protected abstract String postHTTP(final String URL, final String USER_AGENT, final JsonObject JSON);
+    protected abstract void getHTTP(final String URL, final String USER_AGENT, final Consumer<String> RESPONSE_HANDLER);
+    protected abstract void postHTTP(final String URL, final String USER_AGENT, final JsonObject JSON, final Consumer<String> RESPONSE_HANDLER);
 }
