@@ -11,11 +11,13 @@ import tech.tenamen.yt4j.util.JSONUtil;
 
 import java.io.*;
 import java.net.URLEncoder;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 import java.util.function.Consumer;
+import java.util.regex.Pattern;
 
 public abstract class YT4J {
+
+    public static boolean useJsCache = true;
 
     /** Need to continue to search */
     private String countToken;
@@ -28,9 +30,22 @@ public abstract class YT4J {
     /** The host URL of YouTube */
     private static final String HOST_URL = "https://www.youtube.com";
 
-    /** User-agent */
-    private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/105.0.0.0 Safari/537.36 OPR/91.0.4516.72 (Edition GX-CN)";
+    /** User-Agent */
+    private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.101 Safari/537.36";
 
+    private static final EscapeSequence[] ESCAPING_SEQUENCES = {
+            new EscapeSequence("\"", "\"", null),
+            new EscapeSequence("'", "'", null),
+            new EscapeSequence("`", "`", null),
+            new EscapeSequence("/", "/", Pattern.compile("(?m)(^|[\\[{:;,/])\\s?$"))
+    };
+
+    /**
+     * Parse YouTube video data from given JsonObject
+     *
+     * @param videoRenderer JsonObject contains YouTube video data
+     * @return YouTube video data object
+     */
     private YTVideo parseVideo(final JsonObject videoRenderer) {
         final JsonObject owner = videoRenderer
                 .getAsJsonObject("ownerText")
@@ -89,6 +104,12 @@ public abstract class YT4J {
         );
     }
 
+    /**
+     * Parse YouTube shorts videos data from give JsonObject
+     *
+     * @param reelShelfRenderer JsonObject contains data of a YouTube shorts videos
+     * @return list of shorts video data
+     */
     private List<YTShorts> parseShorts(JsonObject reelShelfRenderer) {
         final List<YTShorts> SHORTS_LIST = new ArrayList<>();
 
@@ -114,6 +135,13 @@ public abstract class YT4J {
         return SHORTS_LIST;
     }
 
+    /**
+     * Parse string of video length to seconds integer of one.
+     * Example: 1:42 -> 60 + 42 = 102(sec)
+     *
+     * @param PLAIN_TEXT string of video length
+     * @return seconds integer of video length
+     */
     private int parseLengthSec(final String PLAIN_TEXT) {
         final String[] SP = PLAIN_TEXT.split(":");
         int lengthSec = 0;
@@ -125,10 +153,25 @@ public abstract class YT4J {
                 lengthSec += Integer.parseInt(SP[0]) * 60;
                 lengthSec += Integer.parseInt(SP[1].replaceAll(":", ""));
                 break;
+            case 3:
+                lengthSec += Integer.parseInt(SP[0]) * 60 * 60;
+                lengthSec += Integer.parseInt(SP[1]) * 60;
+                lengthSec += Integer.parseInt(SP[2]);
+                break;
+            default:
+                // video which is longer than one day!?!?
+                break;
         }
         return lengthSec;
     }
 
+    /**
+     * Converts string of view count to integer of one
+     * Example: "114,514" -> 114514
+     *
+     * @param PLAIN_TEXT string of view count
+     * @return integer of view count
+     */
     private int parseViewCount(final String PLAIN_TEXT) {
         return Integer.parseInt(PLAIN_TEXT.split(" ")[0].replace(",", ""));
     }
@@ -136,18 +179,10 @@ public abstract class YT4J {
     /**
      * Parse YouTube videos from JsonArray
      *
-     * @param array JsonArray to be parse
+     * @param array JsonArray to be parsed
      * @return List of YouTube videos
      */
     private List<YTData> parseContents(final JsonArray array) {
-        try {
-            FileWriter file = new FileWriter("C:\\Users\\ryo\\Desktop\\ytoutput.txt");
-            PrintWriter pw = new PrintWriter(new BufferedWriter(file));
-            pw.println(array);
-            pw.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
 
         final List<YTData> CONTENTS = new ArrayList<>();
 
@@ -283,6 +318,232 @@ public abstract class YT4J {
         );
     }
 
+    /**
+     * Download video and save it to give file
+     *
+     * @param VIDEO video to download
+     * @param FILE file where video date is downloaded
+     */
+    public void downloadVideo(final YTVideo VIDEO, final File FILE) {
+        this.getHTTP(
+                "https://www.youtube.com/watch?v=" + VIDEO.getVideoId(),
+                USER_AGENT,
+                response -> {
+                    this.getHTTP(
+                            String.format("%s/s/player/dee96cfa/player_ias.vflset/en_US/base.js", HOST_URL),
+                            USER_AGENT,
+                            jsResponse -> {
+                                //System.out.println(jsResponse);
+                                final Map<String, String> functions = extractFunctions(jsResponse);
+                                /*
+                                final JsonObject playerJson = GSON.fromJson(
+                                        clip(response, "var ytInitialPlayerResponse =", ";var meta"),
+                                        JsonObject.class
+                                );
+                                final JsonObject initJson = GSON.fromJson(
+                                        clip(response, "var ytInitialData =", ";</script>"),
+                                        JsonObject.class
+                                );
+                                printDbg(response);
+                                */
+                            }
+                    );
+                }
+        );
+    }
+
+    private Map<String, String> extractFunctions(final String response) {
+        final Map<String, String> functions = new HashMap<>();
+        extractDecipher(response, functions);
+        extractNode(response, functions);
+        return functions;
+    }
+
+    private String extractManipulation(final String body, final String caller) {
+        String function_name = clip(caller, "a=a.split(\"\");", ".");
+        if (function_name.isEmpty()) {
+            System.out.println("function_name is empty in extractManipulation");
+            return "";
+        }
+
+        String function_start = String.format("var %s={", function_name);
+        int ndx = body.indexOf(function_start);
+
+        if (ndx == -1) {
+            System.out.println("body.indexOf(function_start) not found in extractManipulation");
+            return "";
+        }
+
+        String sub_body = body.substring(ndx + function_start.length() - 1);
+
+        String cut_after_sub_body = cutAfterJS(sub_body);
+
+        return String.format("var %s=%s", function_name, cut_after_sub_body);
+    }
+
+    private void extractDecipher(final String body, final Map<String, String> functions) {
+        final String function_name = clip(body, "a.set(\"alr\",\"yes\");c&&(c=", "(decodeURIC");
+        // System.out.println("decipher function name: " + function_name);
+
+        if (!function_name.isEmpty()) {
+            String function_start = String.format("%s=function(a)", function_name);
+            int ndx = body.indexOf(function_start);
+
+            if (ndx != -1) {
+                String sub_body = body.substring(ndx + function_start.length());
+
+                String cut_after_sub_body = cutAfterJS(sub_body);
+
+                String function_body = String.format("var %s=%s", function_start, cut_after_sub_body);
+
+                function_body = String.format(
+                        "%s;%s;",
+                        extractManipulation(body, function_body), // assuming you have the extractManipulations method
+                        function_body
+                );
+
+                function_body = function_body.replace("\n", "");
+
+                functions.put(function_name, function_body);
+            } else {
+                System.out.println("body.indexOf(function_start) not found in extractDecipher");
+            }
+        }
+    }
+
+    private void extractNode(final String body, final Map<String, String> functions) {
+        String function_name = clip(body, "&&(b=a.get(\"n\"))&&(b=", "(b)");
+
+        String left_name = String.format("var %s=[", function_name.split("\\[")[0]);
+
+        if (function_name.contains("[")) {
+            function_name = clip(body, left_name, "]");
+        }
+
+        // System.out.println("ncode function name: " + function_name);
+
+        if (!function_name.isEmpty()) {
+            final String function_start = String.format("%s=function(a)", function_name);
+            final int ndx = body.indexOf(function_start);
+
+            if (ndx != -1) {
+                String sub_body = body.substring(ndx + function_start.length());
+
+                String cut_after_sub_body = cutAfterJS(sub_body);
+
+                String function_body = String.format("var %s;%s;", function_start, cut_after_sub_body);
+
+                function_body = function_body.replace("\n", "");
+
+                functions.put(function_name, function_body);
+            } else {
+                System.out.println("body.indexOf(function_start) not found in extractNode");
+            }
+        }
+    }
+
+    private String cutAfterJS(final String mixedJson) {
+        String open, close;
+
+        switch (mixedJson.substring(0, 1)) {
+            case "[":
+                open = "[";
+                close = "]";
+                break;
+            case "{":
+                open = "{";
+                close = "}";
+                break;
+            default:
+                System.out.println("open close not defined in cutAfterJS");
+                return null;
+        }
+
+        EscapeSequence isEscapedObject = null;
+        boolean isEscaped = false;
+        int counter = 0;
+
+        List<String> mixedJsonUnicode = new ArrayList<>();
+        for (int i = 0; i < mixedJson.length(); ) {
+            int codepoint = mixedJson.codePointAt(i);
+            int charCount = Character.charCount(codepoint);
+            String value = mixedJson.substring(i, i + charCount);
+            mixedJsonUnicode.add(value);
+
+            if (!isEscaped && isEscapedObject != null && value.equals(isEscapedObject.getEnd())) {
+                isEscapedObject = null;
+                i += charCount;
+                continue;
+            } else if (!isEscaped && isEscapedObject == null) {
+                for (EscapeSequence escaped : ESCAPING_SEQUENCES) {
+                    if (!value.equals(escaped.getStart())) {
+                        continue;
+                    }
+
+                    int substringStartNumber = Math.max(0, i - 10);
+
+                    if (escaped.getStartPrefix() == null ||
+                            (escaped.getStartPrefix() != null &&
+                                    escaped.getStartPrefix().matcher(mixedJson.substring(substringStartNumber, i)).matches())) {
+                        isEscapedObject = escaped;
+                        break;
+                    }
+                }
+
+                if (isEscapedObject != null) {
+                    i += charCount;
+                    continue;
+                }
+            }
+
+            isEscaped = value.equals("\\") && !isEscaped;
+
+            if (isEscapedObject != null) {
+                i += charCount;
+                continue;
+            }
+
+            if (value.equals(open)) {
+                counter++;
+            } else if (value.equals(close)) {
+                counter--;
+            }
+
+            if (counter == 0) {
+                return mixedJson.substring(0, i + charCount);
+            }
+
+            i += charCount;
+        }
+
+        return null;
+    }
+
+    /**
+     * A method that extracts a substring between a specified start string and end string from a specified string.
+     *
+     * @param target Target string
+     * @param first start string
+     * @param last end string
+     * @return Substring between start string and end string
+     */
+    private static String clip(final String target, final String first, final String last) {
+        final int startIndex = target.indexOf(first) + first.length();
+        return target.substring(startIndex, target.indexOf(last, startIndex));
+    }
+
     protected abstract void getHTTP(final String URL, final String USER_AGENT, final Consumer<String> RESPONSE_HANDLER);
     protected abstract void postHTTP(final String URL, final String USER_AGENT, final JsonObject JSON, final Consumer<String> RESPONSE_HANDLER);
+
+    // For debugging
+    private static void printDbg(final String data) {
+        try {
+            FileWriter file = new FileWriter("C:\\Users\\ryo\\Desktop\\ytoutput.txt");
+            PrintWriter pw = new PrintWriter(new BufferedWriter(file));
+            pw.println(data);
+            pw.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 }
