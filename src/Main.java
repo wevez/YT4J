@@ -8,6 +8,15 @@ public class Main {
         // Create an instance of CustomSC4J.
         HttpURLConnectionYT4J yt4J = new HttpURLConnectionYT4J();
 
+        if (false) {
+            yt4J.getDownloadURL(
+                    downloadURL -> System.out.println(downloadURL),
+                    "cvZnQ8wN1OQ",
+                    new YTDLOption(YTDLOption.YTDLType.AUDIO_MP4, YTDLOption.YTDLQuality.LOWEST)
+            );
+            return;
+        }
+
         // Start searching with title "blue roar".
         yt4J.startSearch(result -> {
 

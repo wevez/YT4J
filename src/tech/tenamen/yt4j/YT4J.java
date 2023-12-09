@@ -318,8 +318,19 @@ public abstract class YT4J {
      * @param OPTION video download type
      */
     public void getDownloadURL(final Consumer<String> ON_SUCCESS, final YTVideo VIDEO, final YTDLOption OPTION) {
+        this.getDownloadURL(ON_SUCCESS, VIDEO.getVideoId(), OPTION);
+    }
+
+    /**
+     * Download video and save it to give file
+     *
+     * @param ON_SUCCESS process executed when searching is success
+     * @param VIDEO_ID videoId to download
+     * @param OPTION video download type
+     */
+    public void getDownloadURL(final Consumer<String> ON_SUCCESS, final String VIDEO_ID, final YTDLOption OPTION) {
         this.getHTTP(
-                String.format("%s/watch?v=%s", HOST_URL, VIDEO.getVideoId()),
+                String.format("%s/watch?v=%s", HOST_URL, VIDEO_ID),
                 USER_AGENT,
                 response -> {
                     final JsonObject playerJson = GSON.fromJson(
@@ -424,6 +435,9 @@ public abstract class YT4J {
     }
 
     private String getDownloadURL(final JsonObject format) {
+        if (format.has("url")) {
+            return format.get("url").getAsString();
+        }
         final String decodedURL = URLDecoder.decode(format.get("signatureCipher").getAsString());
         String sig = null;
         sig = DecipherJS.HLa(clip(decodedURL, "s=", "&sp=sig&url="));
