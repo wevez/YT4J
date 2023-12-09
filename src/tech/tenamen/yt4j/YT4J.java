@@ -3,21 +3,19 @@ package tech.tenamen.yt4j;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import tech.tenamen.yt4j.data.YTData;
-import tech.tenamen.yt4j.data.YTPublisher;
-import tech.tenamen.yt4j.data.YTShorts;
-import tech.tenamen.yt4j.data.YTVideo;
+import tech.tenamen.yt4j.data.*;
 import tech.tenamen.yt4j.util.JSONUtil;
 
+import javax.script.ScriptEngine;
+import javax.script.ScriptEngineManager;
+import javax.script.ScriptException;
 import java.io.*;
+import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.util.*;
 import java.util.function.Consumer;
-import java.util.regex.Pattern;
 
 public abstract class YT4J {
-
-    public static boolean useJsCache = true;
 
     /** Need to continue to search */
     private String countToken;
@@ -33,12 +31,7 @@ public abstract class YT4J {
     /** User-Agent */
     private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.101 Safari/537.36";
 
-    private static final EscapeSequence[] ESCAPING_SEQUENCES = {
-            new EscapeSequence("\"", "\"", null),
-            new EscapeSequence("'", "'", null),
-            new EscapeSequence("`", "`", null),
-            new EscapeSequence("/", "/", Pattern.compile("(?m)(^|[\\[{:;,/])\\s?$"))
-    };
+    private static final String DECIPHER_SCRIPT = "var vP={OK:function(a,b){var c=a[0];a[0]=a[b%a.length];a[b%a.length]=c},LU:function(a,b){a.splice(0,b)},s2:function(a){a.reverse()}};var HLa=function(a){a=a.split(\"\");vP.s2(a,33);vP.OK(a,62);vP.LU(a,3);vP.s2(a,29);vP.OK(a,11);vP.OK(a,31);return a.join(\"\")};";
 
     /**
      * Parse YouTube video data from given JsonObject
@@ -321,202 +314,93 @@ public abstract class YT4J {
     /**
      * Download video and save it to give file
      *
+     * @param ON_SUCCESS process executed when searching is success
      * @param VIDEO video to download
-     * @param FILE file where video date is downloaded
+     * @param TYPE video download type
      */
-    public void downloadVideo(final YTVideo VIDEO, final File FILE) {
+    public void getDownloadURL(final Consumer<String> ON_SUCCESS, final YTVideo VIDEO, final YTDLOption OPTION) {
         this.getHTTP(
-                "https://www.youtube.com/watch?v=" + VIDEO.getVideoId(),
+                String.format("%s/watch?v=%s", HOST_URL, VIDEO.getVideoId()),
                 USER_AGENT,
                 response -> {
-                    this.getHTTP(
-                            String.format("%s/s/player/dee96cfa/player_ias.vflset/en_US/base.js", HOST_URL),
-                            USER_AGENT,
-                            jsResponse -> {
-                                //System.out.println(jsResponse);
-                                final Map<String, String> functions = extractFunctions(jsResponse);
-                                /*
-                                final JsonObject playerJson = GSON.fromJson(
-                                        clip(response, "var ytInitialPlayerResponse =", ";var meta"),
-                                        JsonObject.class
-                                );
-                                final JsonObject initJson = GSON.fromJson(
-                                        clip(response, "var ytInitialData =", ";</script>"),
-                                        JsonObject.class
-                                );
-                                printDbg(response);
-                                */
-                            }
+                    final JsonObject playerJson = GSON.fromJson(
+                            clip(response, "var ytInitialPlayerResponse =", ";var meta"),
+                            JsonObject.class
                     );
+                    final Optional<JsonObject> bestFormatOption = JSONUtil.streamOf(
+                            playerJson
+                                    .getAsJsonObject("streamingData")
+                                    .getAsJsonArray("adaptiveFormats")
+                    ).filter(format -> {
+                        final String miniType = format.get("mimeType").getAsString();
+                        switch (OPTION.getType()) {
+                            case VIDEO_MP4:
+                                return miniType.startsWith("video/mp4;");
+                            case VIDEO_WEBM:
+                                return miniType.startsWith("video/webm;");
+                            case AUDIO_MP4:
+                                return miniType.startsWith("audio/mp4;");
+                            case AUDIO_WEBM:
+                                return miniType.startsWith("audio/webm;");
+                        }
+                        System.out.printf("Unknown miniType: %s\n", OPTION.getType());
+                        return false;
+                    }).min(Comparator.comparingInt(format -> {
+                        switch (OPTION.getType()) {
+                            case VIDEO_MP4:
+                            case VIDEO_WEBM:
+                                return Integer.parseInt(
+                                        format
+                                                .get("qualityLabel")
+                                                .getAsString()
+                                                .replaceAll("p", "")
+                                );
+                            case AUDIO_MP4:
+                            case AUDIO_WEBM:
+                                return format
+                                        .get("averageBitrate")
+                                        .getAsInt();
+                        }
+                        System.out.printf("Unknown miniType: %s\n", OPTION.getType());
+                        return 0;
+                    }));
+                    if (!bestFormatOption.isPresent()) {
+                        System.out.printf("Format adapted to %s not found\n", OPTION.toString());
+                        return;
+                    }
+                    ON_SUCCESS.accept(this.getDownloadURL(bestFormatOption.get()));
+                    /*
+                    final JsonObject initJson = GSON.fromJson(
+                            clip(response, "var ytInitialData =", ";</script>"),
+                            JsonObject.class
+                    );
+                    */
                 }
         );
     }
 
-    private Map<String, String> extractFunctions(final String response) {
-        final Map<String, String> functions = new HashMap<>();
-        extractDecipher(response, functions);
-        extractNode(response, functions);
-        return functions;
+    // TODO
+    public void getVideoDetail(final Consumer<YTVideoDetail> ON_SUCCESS, final YTVideo VIDEO) {
     }
 
-    private String extractManipulation(final String body, final String caller) {
-        String function_name = clip(caller, "a=a.split(\"\");", ".");
-        if (function_name.isEmpty()) {
-            System.out.println("function_name is empty in extractManipulation");
-            return "";
+    private String getDownloadURL(final JsonObject format) {
+        final String decodedURL = URLDecoder.decode(format.get("signatureCipher").getAsString());
+        //final String sig = HTMPPlayer.HLa(clip(decodedURL, "s=", "&sp=sig&url="));
+        String sig = null;
+        ScriptEngineManager manager = new ScriptEngineManager();
+        ScriptEngine engine = manager.getEngineByName("js");
+        try {
+            engine.eval(DECIPHER_SCRIPT);
+            sig = (String) engine.eval(String.format("HLa(\"%s\")", clip(decodedURL, "s=", "&sp=sig&url=")));
+        } catch (ScriptException e) {
+            e.printStackTrace();
         }
-
-        String function_start = String.format("var %s={", function_name);
-        int ndx = body.indexOf(function_start);
-
-        if (ndx == -1) {
-            System.out.println("body.indexOf(function_start) not found in extractManipulation");
-            return "";
-        }
-
-        String sub_body = body.substring(ndx + function_start.length() - 1);
-
-        String cut_after_sub_body = cutAfterJS(sub_body);
-
-        return String.format("var %s=%s", function_name, cut_after_sub_body);
-    }
-
-    private void extractDecipher(final String body, final Map<String, String> functions) {
-        final String function_name = clip(body, "a.set(\"alr\",\"yes\");c&&(c=", "(decodeURIC");
-        // System.out.println("decipher function name: " + function_name);
-
-        if (!function_name.isEmpty()) {
-            String function_start = String.format("%s=function(a)", function_name);
-            int ndx = body.indexOf(function_start);
-
-            if (ndx != -1) {
-                String sub_body = body.substring(ndx + function_start.length());
-
-                String cut_after_sub_body = cutAfterJS(sub_body);
-
-                String function_body = String.format("var %s=%s", function_start, cut_after_sub_body);
-
-                function_body = String.format(
-                        "%s;%s;",
-                        extractManipulation(body, function_body), // assuming you have the extractManipulations method
-                        function_body
-                );
-
-                function_body = function_body.replace("\n", "");
-
-                functions.put(function_name, function_body);
-            } else {
-                System.out.println("body.indexOf(function_start) not found in extractDecipher");
-            }
-        }
-    }
-
-    private void extractNode(final String body, final Map<String, String> functions) {
-        String function_name = clip(body, "&&(b=a.get(\"n\"))&&(b=", "(b)");
-
-        String left_name = String.format("var %s=[", function_name.split("\\[")[0]);
-
-        if (function_name.contains("[")) {
-            function_name = clip(body, left_name, "]");
-        }
-
-        // System.out.println("ncode function name: " + function_name);
-
-        if (!function_name.isEmpty()) {
-            final String function_start = String.format("%s=function(a)", function_name);
-            final int ndx = body.indexOf(function_start);
-
-            if (ndx != -1) {
-                String sub_body = body.substring(ndx + function_start.length());
-
-                String cut_after_sub_body = cutAfterJS(sub_body);
-
-                String function_body = String.format("var %s;%s;", function_start, cut_after_sub_body);
-
-                function_body = function_body.replace("\n", "");
-
-                functions.put(function_name, function_body);
-            } else {
-                System.out.println("body.indexOf(function_start) not found in extractNode");
-            }
-        }
-    }
-
-    private String cutAfterJS(final String mixedJson) {
-        String open, close;
-
-        switch (mixedJson.substring(0, 1)) {
-            case "[":
-                open = "[";
-                close = "]";
-                break;
-            case "{":
-                open = "{";
-                close = "}";
-                break;
-            default:
-                System.out.println("open close not defined in cutAfterJS");
-                return null;
-        }
-
-        EscapeSequence isEscapedObject = null;
-        boolean isEscaped = false;
-        int counter = 0;
-
-        List<String> mixedJsonUnicode = new ArrayList<>();
-        for (int i = 0; i < mixedJson.length(); ) {
-            int codepoint = mixedJson.codePointAt(i);
-            int charCount = Character.charCount(codepoint);
-            String value = mixedJson.substring(i, i + charCount);
-            mixedJsonUnicode.add(value);
-
-            if (!isEscaped && isEscapedObject != null && value.equals(isEscapedObject.getEnd())) {
-                isEscapedObject = null;
-                i += charCount;
-                continue;
-            } else if (!isEscaped && isEscapedObject == null) {
-                for (EscapeSequence escaped : ESCAPING_SEQUENCES) {
-                    if (!value.equals(escaped.getStart())) {
-                        continue;
-                    }
-
-                    int substringStartNumber = Math.max(0, i - 10);
-
-                    if (escaped.getStartPrefix() == null ||
-                            (escaped.getStartPrefix() != null &&
-                                    escaped.getStartPrefix().matcher(mixedJson.substring(substringStartNumber, i)).matches())) {
-                        isEscapedObject = escaped;
-                        break;
-                    }
-                }
-
-                if (isEscapedObject != null) {
-                    i += charCount;
-                    continue;
-                }
-            }
-
-            isEscaped = value.equals("\\") && !isEscaped;
-
-            if (isEscapedObject != null) {
-                i += charCount;
-                continue;
-            }
-
-            if (value.equals(open)) {
-                counter++;
-            } else if (value.equals(close)) {
-                counter--;
-            }
-
-            if (counter == 0) {
-                return mixedJson.substring(0, i + charCount);
-            }
-
-            i += charCount;
-        }
-
-        return null;
+        final String resultURL = String.format(
+                "%s&sig=%s",
+                decodedURL.substring(decodedURL.indexOf("&sp=sig&url=") + "&sp=sig&url=".length()),
+                sig
+        );
+        return resultURL;
     }
 
     /**
@@ -534,16 +418,4 @@ public abstract class YT4J {
 
     protected abstract void getHTTP(final String URL, final String USER_AGENT, final Consumer<String> RESPONSE_HANDLER);
     protected abstract void postHTTP(final String URL, final String USER_AGENT, final JsonObject JSON, final Consumer<String> RESPONSE_HANDLER);
-
-    // For debugging
-    private static void printDbg(final String data) {
-        try {
-            FileWriter file = new FileWriter("C:\\Users\\ryo\\Desktop\\ytoutput.txt");
-            PrintWriter pw = new PrintWriter(new BufferedWriter(file));
-            pw.println(data);
-            pw.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
 }
