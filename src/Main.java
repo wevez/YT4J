@@ -19,7 +19,7 @@ public class Main {
 
                 // Print the download URL of the lowest quality music of the first video in the search result
                 yt4J.getDownloadURL(
-                        System.out::println,
+                        downloadURL -> System.out.println(downloadURL),
                         (YTVideo) result.get(0),
                         new YTDLOption(YTDLOption.YTDLType.AUDIO_MP4, YTDLOption.YTDLQuality.LOWEST)
                 );

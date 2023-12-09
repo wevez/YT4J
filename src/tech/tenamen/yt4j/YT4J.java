@@ -6,9 +6,6 @@ import com.google.gson.JsonObject;
 import tech.tenamen.yt4j.data.*;
 import tech.tenamen.yt4j.util.JSONUtil;
 
-import javax.script.ScriptEngine;
-import javax.script.ScriptEngineManager;
-import javax.script.ScriptException;
 import java.io.*;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
@@ -428,23 +425,13 @@ public abstract class YT4J {
 
     private String getDownloadURL(final JsonObject format) {
         final String decodedURL = URLDecoder.decode(format.get("signatureCipher").getAsString());
-        //final String sig = HTMPPlayer.HLa(clip(decodedURL, "s=", "&sp=sig&url="));
         String sig = null;
-        ScriptEngineManager manager = new ScriptEngineManager();
-        ScriptEngine engine = manager.getEngineByName("js");
-        try {
-            System.out.println(DECIPHER_SCRIPT);
-            engine.eval(DECIPHER_SCRIPT);
-            sig = (String) engine.eval(String.format("HLa(\"%s\")", clip(decodedURL, "s=", "&sp=sig&url=")));
-        } catch (ScriptException e) {
-            e.printStackTrace();
-        }
-        final String resultURL = String.format(
+        sig = DecipherJS.HLa(clip(decodedURL, "s=", "&sp=sig&url="));
+        return String.format(
                 "%s&sig=%s",
                 decodedURL.substring(decodedURL.indexOf("&sp=sig&url=") + "&sp=sig&url=".length()),
                 sig
         );
-        return resultURL;
     }
 
     /**
