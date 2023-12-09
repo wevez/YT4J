@@ -28,7 +28,7 @@ public abstract class YT4J {
     /** The host URL of YouTube */
     private static final String HOST_URL = "https://www.youtube.com";
 
-    /** User-Agent */
+    /** Define thr global User-Agent */
     private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.101 Safari/537.36";
 
     private static final String DECIPHER_SCRIPT = "var vP={OK:function(a,b){var c=a[0];a[0]=a[b%a.length];a[b%a.length]=c},LU:function(a,b){a.splice(0,b)},s2:function(a){a.reverse()}};var HLa=function(a){a=a.split(\"\");vP.s2(a,33);vP.OK(a,62);vP.LU(a,3);vP.s2(a,29);vP.OK(a,11);vP.OK(a,31);return a.join(\"\")};";
@@ -87,7 +87,7 @@ public abstract class YT4J {
                         .getAsJsonObject("lengthText")
                         .get("simpleText")
                         .getAsString()
-                ), // length
+                ), // video length
                 parseViewCount(
                         videoRenderer
                                 .getAsJsonObject("viewCountText")
@@ -160,7 +160,7 @@ public abstract class YT4J {
 
     /**
      * Converts string of view count to integer of one
-     * Example: "114,514" -> 114514
+     * Example: "114,514 views" -> 114514
      *
      * @param PLAIN_TEXT string of view count
      * @return integer of view count
@@ -187,7 +187,8 @@ public abstract class YT4J {
                 .map(JSONUtil.getObject("continuationEndpoint"))
                 .map(JSONUtil.getObject("continuationCommand"))
                 .map(JSONUtil.getString("token"))
-                .findAny().ifPresent(s -> countToken = s);
+                .findAny()
+                .ifPresent(s -> countToken = s);
 
         // Parse video info from json.
         JSONUtil.streamOf(array)
@@ -213,7 +214,7 @@ public abstract class YT4J {
      * @param ON_SUCCESS process executed when searching is success
      * @param KEYWORD search title
      */
-    public void startSearch(final Consumer<List<YTData>> ON_SUCCESS, final String KEYWORD, final YTFilter FILTER) {
+    public void startSearch(final Consumer<List<YTData>> ON_SUCCESS, final String KEYWORD, final YTSearchFilterOption FILTER) {
         String encodedKeyword = null;
         try {
             encodedKeyword = URLEncoder.encode(KEYWORD, "UTF-8");
@@ -301,7 +302,8 @@ public abstract class YT4J {
                 response -> {
                     final JsonObject item1 = GSON.fromJson(response, JsonObject.class)
                             .getAsJsonArray("onResponseReceivedCommands")
-                            .get(0).getAsJsonObject()
+                            .get(0)
+                            .getAsJsonObject()
                             .getAsJsonObject("appendContinuationItemsAction");
 
                     final JsonArray continuationItems = item1.getAsJsonArray("continuationItems");
@@ -316,7 +318,7 @@ public abstract class YT4J {
      *
      * @param ON_SUCCESS process executed when searching is success
      * @param VIDEO video to download
-     * @param TYPE video download type
+     * @param OPTION video download type
      */
     public void getDownloadURL(final Consumer<String> ON_SUCCESS, final YTVideo VIDEO, final YTDLOption OPTION) {
         this.getHTTP(
@@ -381,6 +383,47 @@ public abstract class YT4J {
 
     // TODO
     public void getVideoDetail(final Consumer<YTVideoDetail> ON_SUCCESS, final YTVideo VIDEO) {
+        this.getHTTP(
+                String.format("%s/watch?v=%s", HOST_URL, VIDEO.getVideoId()),
+                USER_AGENT,
+                response -> {
+                    final JsonObject playerJson = GSON.fromJson(
+                            clip(response, "var ytInitialPlayerResponse =", ";var meta"),
+                            JsonObject.class
+                    );
+                    final JsonObject videoDetails = playerJson.getAsJsonObject("videoDetails");
+                    final JsonObject playerMicroformatRenderer = playerJson
+                            .getAsJsonObject("microformat")
+                            .getAsJsonObject("playerMicroformatRenderer");
+                    ON_SUCCESS.accept(new YTVideoDetail(
+                            playerMicroformatRenderer
+                                    .getAsJsonObject("description")
+                                    .get("simpleText")
+                                    .getAsString(), // description
+                            playerMicroformatRenderer
+                                    .get("category")
+                                    .getAsString(), // category
+                            playerMicroformatRenderer
+                                    .get("publishDate")
+                                    .getAsString(), // publish date
+                            playerMicroformatRenderer
+                                    .get("uploadDate")
+                                    .getAsString(), // upload date
+                            JSONUtil.streamOfStr(videoDetails.getAsJsonArray("keywords"))
+                                    .toArray(String[]::new), // keywords
+                            JSONUtil.streamOfStr(playerMicroformatRenderer.getAsJsonArray("availableCountries"))
+                                    .toArray(String[]::new), // available countries
+                            playerMicroformatRenderer.get("isFamilySafe").getAsBoolean() // family safe
+                    ));
+                    /*
+                    final JsonObject initJson = GSON.fromJson(
+                            clip(response, "var ytInitialData =", ";</script>"),
+                            JsonObject.class
+                    );
+                    System.out.println(initJson);
+                    */
+                }
+        );
     }
 
     private String getDownloadURL(final JsonObject format) {
@@ -390,6 +433,7 @@ public abstract class YT4J {
         ScriptEngineManager manager = new ScriptEngineManager();
         ScriptEngine engine = manager.getEngineByName("js");
         try {
+            System.out.println(DECIPHER_SCRIPT);
             engine.eval(DECIPHER_SCRIPT);
             sig = (String) engine.eval(String.format("HLa(\"%s\")", clip(decodedURL, "s=", "&sp=sig&url=")));
         } catch (ScriptException e) {

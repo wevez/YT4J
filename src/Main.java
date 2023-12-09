@@ -1,13 +1,11 @@
 import tech.tenamen.yt4j.YTDLOption;
-import tech.tenamen.yt4j.YTDLQuality;
-import tech.tenamen.yt4j.YTDLType;
-import tech.tenamen.yt4j.YTFilter;
+import tech.tenamen.yt4j.YTSearchFilterOption;
 import tech.tenamen.yt4j.data.YTVideo;
 
 public class Main {
 
     public static void main(String[] args) {
-        // Create an instance if CustomSC4J.
+        // Create an instance of CustomSC4J.
         HttpURLConnectionYT4J yt4J = new HttpURLConnectionYT4J();
 
         // Start searching with title "blue roar".
@@ -23,9 +21,9 @@ public class Main {
                 yt4J.getDownloadURL(
                         System.out::println,
                         (YTVideo) result.get(0),
-                        new YTDLOption(YTDLType.AUDIO_MP4, YTDLQuality.LOWEST)
+                        new YTDLOption(YTDLOption.YTDLType.AUDIO_MP4, YTDLOption.YTDLQuality.LOWEST)
                 );
             });
-        }, "blue roar", YTFilter.VIDEO);
+        }, "blue roar", YTSearchFilterOption.VIDEO);
     }
 }

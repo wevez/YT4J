@@ -20,6 +20,10 @@ public class JSONUtil {
         return IntStream.range(0, array.size()).mapToObj(i -> array.get(i).getAsJsonObject());
     }
 
+    public static Stream<String> streamOfStr(final JsonArray array) {
+        return IntStream.range(0, array.size()).mapToObj(i -> array.get(i).getAsString());
+    }
+
     /**
      * Constructs a function that retrieves a JSONObject with the specified name from a given JSONObject.
      *

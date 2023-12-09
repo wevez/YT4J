@@ -3,8 +3,9 @@ YouTube Download and Search API implemented with Java.
 ## Features
 - Download vide or audio
 - Search videos and shorts
+- Get video detail
 ## TODO
-Currentry working on getVideoDetail and rewriting the decipher function written in JavaScript in Java
+Currentry working on rewriting the decipher function written in JavaScript in Java
 ## How to use
 1. Create a class that inherits from YT4J and implement the getHTTP and postHTTP functions.
 ### In case of using [HttpURLConnection](https://docs.oracle.com/javase/8/docs/api/java/net/HttpURLConnection.html)
