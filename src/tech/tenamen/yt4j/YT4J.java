@@ -6,6 +6,9 @@ import com.google.gson.JsonObject;
 import tech.tenamen.yt4j.data.*;
 import tech.tenamen.yt4j.util.JSONUtil;
 
+import javax.script.ScriptEngine;
+import javax.script.ScriptEngineManager;
+import javax.script.ScriptException;
 import java.io.*;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
@@ -26,9 +29,7 @@ public abstract class YT4J {
     private static final String HOST_URL = "https://www.youtube.com";
 
     /** Define thr global User-Agent */
-    private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.101 Safari/537.36";
-
-    private static final String DECIPHER_SCRIPT = "var vP={OK:function(a,b){var c=a[0];a[0]=a[b%a.length];a[b%a.length]=c},LU:function(a,b){a.splice(0,b)},s2:function(a){a.reverse()}};var HLa=function(a){a=a.split(\"\");vP.s2(a,33);vP.OK(a,62);vP.LU(a,3);vP.s2(a,29);vP.OK(a,11);vP.OK(a,31);return a.join(\"\")};";
+    private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0";
 
     /**
      * Parse YouTube video data from given JsonObject
@@ -378,13 +379,7 @@ public abstract class YT4J {
                         System.out.printf("Format adapted to %s not found\n", OPTION.toString());
                         return;
                     }
-                    ON_SUCCESS.accept(this.getDownloadURL(bestFormatOption.get()));
-                    /*
-                    final JsonObject initJson = GSON.fromJson(
-                            clip(response, "var ytInitialData =", ";</script>"),
-                            JsonObject.class
-                    );
-                    */
+                    this.getDownloadURL(bestFormatOption.get(), ON_SUCCESS);
                 }
         );
     }
@@ -434,17 +429,45 @@ public abstract class YT4J {
         );
     }
 
-    private String getDownloadURL(final JsonObject format) {
+    private void getDownloadURL(final JsonObject format, Consumer<String> stringConsumer) {
         if (format.has("url")) {
-            return format.get("url").getAsString();
+            stringConsumer.accept(format.get("url").getAsString());
+            return;
         }
         final String decodedURL = URLDecoder.decode(format.get("signatureCipher").getAsString());
-        String sig = null;
-        sig = DecipherJS.HLa(clip(decodedURL, "s=", "&sp=sig&url="));
-        return String.format(
-                "%s&sig=%s",
-                decodedURL.substring(decodedURL.indexOf("&sp=sig&url=") + "&sp=sig&url=".length()),
-                sig
+
+        // fetch decipher script from online
+        this.getHTTP(
+                "https://www.youtube.com/s/player/80b90bfd/player_ias.vflset/en_US/base.js",
+                USER_AGENT,
+                s -> {
+                    final List<Map<String, String>> scripts = new ArrayList<>();
+                    JavaScriptExtractor.extractDecipher(s, scripts);
+
+                    // decrypt sig using java script engine
+                    ScriptEngineManager manager = new ScriptEngineManager();
+                    ScriptEngine engine = manager.getEngineFactories().get(0).getScriptEngine();
+
+                    String sig = null;
+
+                    try {
+                        // we need this instruction in order to avoid java script engine errors
+                        engine.eval(scripts.get(0).get("body").replaceAll("}", "}\n"));
+                        sig = (String) engine.eval(String.format(
+                                "%s(\"%s\")",
+                                scripts.get(0).get("name"),
+                                clip(decodedURL, "s=", "&sp=sig&url=")
+                        ));
+                    } catch (ScriptException e) {
+                        throw new RuntimeException(e);
+                    }
+
+                    stringConsumer.accept(String.format(
+                            "%s&sig=%s",
+                            decodedURL.substring(decodedURL.indexOf("&sp=sig&url=") + "&sp=sig&url=".length()),
+                            sig
+                    ));
+                }
         );
     }
 
@@ -456,7 +479,7 @@ public abstract class YT4J {
      * @param last end string
      * @return Substring between start string and end string
      */
-    private static String clip(final String target, final String first, final String last) {
+    static String clip(final String target, final String first, final String last) {
         final int startIndex = target.indexOf(first) + first.length();
         return target.substring(startIndex, target.indexOf(last, startIndex));
     }

@@ -8,10 +8,10 @@ public class Main {
         // Create an instance of CustomSC4J.
         HttpURLConnectionYT4J yt4J = new HttpURLConnectionYT4J();
 
-        if (false) {
+        if (true) {
             yt4J.getDownloadURL(
                     downloadURL -> System.out.println(downloadURL),
-                    "cvZnQ8wN1OQ",
+                    "urH09Bu4NLo",
                     new YTDLOption(YTDLOption.YTDLType.AUDIO_MP4, YTDLOption.YTDLQuality.LOWEST)
             );
             return;
