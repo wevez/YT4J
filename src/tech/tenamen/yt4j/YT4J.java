@@ -379,7 +379,7 @@ public abstract class YT4J {
                         System.out.printf("Format adapted to %s not found\n", OPTION.toString());
                         return;
                     }
-                    this.getDownloadURL(bestFormatOption.get(), ON_SUCCESS);
+                    this.getDownloadURL(response, bestFormatOption.get(), ON_SUCCESS);
                 }
         );
     }
@@ -429,7 +429,7 @@ public abstract class YT4J {
         );
     }
 
-    private void getDownloadURL(final JsonObject format, Consumer<String> stringConsumer) {
+    private void getDownloadURL(String body, final JsonObject format, Consumer<String> stringConsumer) {
         if (format.has("url")) {
             stringConsumer.accept(format.get("url").getAsString());
             return;
@@ -438,7 +438,7 @@ public abstract class YT4J {
 
         // fetch decipher script from online
         this.getHTTP(
-                "https://www.youtube.com/s/player/80b90bfd/player_ias.vflset/en_US/base.js",
+                "https://www.youtube.com/" + JavaScriptExtractor.getHtml5Player(body),
                 USER_AGENT,
                 s -> {
                     final List<Map<String, String>> scripts = new ArrayList<>();

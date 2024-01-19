@@ -6,6 +6,26 @@ import java.util.regex.Pattern;
 
 public class JavaScriptExtractor {
 
+    public static String getHtml5Player(String body) {
+        String regex = "<script\\s+src=\"([^\"]+)\"(?:\\s+type=\"text\\\\/javascript\")?\\s+name=\"player_ias\\\\/base\"\\s*>|\"jsUrl\":\"([^\"]+)\"";
+        Pattern pattern = Pattern.compile(regex);
+        Matcher matcher = pattern.matcher(body);
+
+        if (matcher.find()) {
+            String group1 = matcher.group(1);
+            if (group1 != null) {
+                return group1;
+            } else {
+                String group2 = matcher.group(2);
+                if (group2 != null) {
+                    return group2;
+                }
+            }
+        }
+
+        return null;
+    }
+
     public static String extractManipulations(String body, String caller) {
         String functionName = YT4J.clip(caller, "a=a.split(\"\");", ".");
         if (functionName.isEmpty()) {
